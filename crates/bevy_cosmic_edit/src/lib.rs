@@ -69,7 +69,7 @@ pub enum CosmicTextPos {
 #[derive(Component)]
 pub struct CosmicEditHistory {
     edits: VecDeque<Vec<Vec<(String, AttrsOwned)>>>,
-    current_edit: usize,
+    current_edit: i16,
 }
 
 #[derive(Component)]
@@ -240,26 +240,52 @@ pub fn get_cosmic_text(buffer: &Buffer) -> String {
     text
 }
 
-fn get_text_spans(buffer: &Buffer) -> Vec<Vec<(String, AttrsOwned)>> {
+fn get_text_spans(buffer: &Buffer, default_attrs: AttrsOwned) -> Vec<Vec<(String, AttrsOwned)>> {
     let mut spans = Vec::new();
     for line in buffer.lines.iter() {
         let mut line_spans = Vec::new();
         let line_text = line.text();
-        eprintln!("line_text: {:?}", line_text);
         let line_attrs = line.attrs_list();
-        eprintln!("count: {:?}", line_attrs.spans().len());
-        for span in line_attrs.spans() {
-            let span_range = span.0;
-            eprintln!("span_range: {:?}", span_range);
-            let span_attrs = span.1.clone();
-            eprintln!("span_attrs: {:?}", span_attrs);
-            let span_text = line_text[span_range.clone()].to_string();
-            eprintln!("span_text: {:?}", span_text);
-            line_spans.push((span_text, span_attrs));
+        if line_attrs.spans().len() == 0 {
+            line_spans.push((line_text.to_string(), default_attrs.clone()));
+        } else {
+            for span in line_attrs.spans() {
+                let span_range = span.0;
+                let span_attrs = span.1.clone();
+                let span_text = line_text[span_range.clone()].to_string();
+                line_spans.push((span_text, span_attrs));
+            }
         }
         spans.push(line_spans);
     }
     spans
+}
+
+fn save_edit(cosmic_edit: &mut CosmicEdit, edit_history: &mut CosmicEditHistory) {
+    let edits = &edit_history.edits;
+    let current_spans = get_text_spans(&cosmic_edit.editor.buffer(), cosmic_edit.attrs.clone());
+
+    // if current_text the same as last edit - do not push
+    if let Some(last_edit) = edits.back() {
+        if last_edit == &current_spans {
+            // RETURN
+            return;
+        }
+    }
+    let current_edit = edit_history.current_edit;
+    let mut new_edits = VecDeque::new();
+    new_edits.extend(edits.iter().take((current_edit + 1) as usize).cloned());
+    // remove old edits
+    if new_edits.len() > 1000 {
+        new_edits.drain(0..100);
+    }
+    new_edits.push_back(current_spans);
+    let len = new_edits.len() as i16;
+    eprintln!("new cur edit {}", len - 1);
+    *edit_history = CosmicEditHistory {
+        edits: new_edits,
+        current_edit: len - 1,
+    };
 }
 
 fn bevy_color_to_cosmic(color: bevy::prelude::Color) -> cosmic_text::Color {
@@ -383,7 +409,14 @@ pub fn cosmic_edit_bevy_events(
                         // RETURN
                         return;
                     }
-                    let idx = min(edit_history.current_edit + 1, edits.len() - 1);
+                    if edit_history.current_edit == 0
+                        || edit_history.current_edit == edits.len() as i16 - 1
+                    {
+                        // RETURN
+                        return;
+                    }
+                    let idx = edit_history.current_edit as usize - 1;
+                    eprintln!("redo {}", idx);
                     if let Some(current_edit) = edits.get(idx) {
                         cosmic_edit.editor.buffer_mut().lines.clear();
                         for line in current_edit {
@@ -401,6 +434,7 @@ pub fn cosmic_edit_bevy_events(
                                 Shaping::Advanced,
                             ));
                         }
+                        cosmic_edit.editor.buffer_mut().set_redraw(true);
                         edit_history.current_edit += 1;
                     }
                     return;
@@ -416,7 +450,8 @@ pub fn cosmic_edit_bevy_events(
                         // RETURN
                         return;
                     }
-                    let idx = edit_history.current_edit - 1;
+                    let idx = edit_history.current_edit as usize - 1;
+                    eprintln!("undo {}", idx);
                     if let Some(current_edit) = edits.get(idx) {
                         cosmic_edit.editor.buffer_mut().lines.clear();
                         for line in current_edit {
@@ -434,6 +469,7 @@ pub fn cosmic_edit_bevy_events(
                                 Shaping::Advanced,
                             ));
                         }
+                        cosmic_edit.editor.buffer_mut().set_redraw(true);
                         edit_history.current_edit -= 1;
                     }
 
@@ -567,6 +603,7 @@ pub fn cosmic_edit_bevy_events(
                     // RETURN
                     return;
                 }
+                eprintln!("here");
 
                 let now_ms = get_timestamp();
                 if let Some(last_edit_duration) = *edits_duration {
@@ -574,32 +611,11 @@ pub fn cosmic_edit_bevy_events(
                         > Duration::from_secs(1)
                     {
                         *edits_duration = Some(Duration::from_millis(now_ms as u64));
-
-                        let edits = &edit_history.edits;
-                        let current_spans = get_text_spans(&cosmic_edit.editor.buffer());
-
-                        // if current_text the same as last edit - do not push
-                        if let Some(last_edit) = edits.back() {
-                            if last_edit == &current_spans {
-                                // RETURN
-                                return;
-                            }
-                        }
-                        let current_edit = edit_history.current_edit;
-                        let mut new_edits = VecDeque::new();
-                        new_edits.extend(edits.iter().take(current_edit).cloned());
-                        // remove old edits
-                        if new_edits.len() > 1000 {
-                            new_edits.drain(0..100);
-                        }
-                        new_edits.push_back(current_spans);
-                        *edit_history = CosmicEditHistory {
-                            edits: new_edits,
-                            current_edit: current_edit + 1,
-                        };
+                        save_edit(&mut cosmic_edit, &mut edit_history);
                     }
                 } else {
                     *edits_duration = Some(Duration::from_millis(now_ms as u64));
+                    save_edit(&mut cosmic_edit, &mut edit_history);
                 }
             }
         }
@@ -889,9 +905,9 @@ pub fn spawn_cosmic_edit(
         attrs: cosmic_edit_meta.attrs.clone(),
         bg_image: cosmic_edit_meta.bg_image,
     };
-    let edits_component = CosmicEditHistory {
+    let edit_history = CosmicEditHistory {
         edits: VecDeque::new(),
-        current_edit: 0,
+        current_edit: -1,
     };
     match cosmic_edit_meta.node {
         CosmicNode::Ui => {
@@ -908,7 +924,7 @@ pub fn spawn_cosmic_edit(
                 ..default()
             };
             commands
-                .spawn((button_bundle, cosmic_edit_component, edits_component))
+                .spawn((button_bundle, cosmic_edit_component, edit_history))
                 .id()
         }
         CosmicNode::Sprite(sprite_node) => {
@@ -925,7 +941,7 @@ pub fn spawn_cosmic_edit(
                 ..default()
             };
             commands
-                .spawn((sprite, cosmic_edit_component, edits_component))
+                .spawn((sprite, cosmic_edit_component, edit_history))
                 .id()
         }
     }
