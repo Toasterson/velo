@@ -843,16 +843,6 @@ pub fn cosmic_edit_set_text(
     }
 }
 
-fn get_last_position(editor: &Editor) -> (usize, usize) {
-    let layout_runs = editor.buffer().layout_runs();
-    let len = layout_runs.len();
-    if len > 0 {
-        (len - 1, usize::max_value())
-    } else {
-        (0, 0)
-    }
-}
-
 /// Spawns a cosmic edit entity with the provided configuration.
 ///
 /// # Returns
@@ -885,8 +875,7 @@ pub fn spawn_cosmic_edit(
             height * scale_factor,
         );
     }
-    let cursor_position = get_last_position(&editor);
-    let mut cursor = Cursor::new(cursor_position.0, cursor_position.1);
+    let mut cursor = editor.cursor();
     if cosmic_edit_meta.readonly {
         cursor.color = Some(bevy_color_to_cosmic(cosmic_edit_meta.bg));
     }
