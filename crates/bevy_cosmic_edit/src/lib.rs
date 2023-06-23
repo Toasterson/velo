@@ -1,9 +1,4 @@
-use std::{
-    cmp::{max, min},
-    collections::VecDeque,
-    path::PathBuf,
-    time::Duration,
-};
+use std::{cmp::min, collections::VecDeque, path::PathBuf, time::Duration};
 #[path = "utils.rs"]
 pub mod utils;
 pub use utils::*;
@@ -252,6 +247,7 @@ fn get_text_spans(buffer: &Buffer) -> Vec<Vec<(String, AttrsOwned)>> {
         let line_text = line.text();
         eprintln!("line_text: {:?}", line_text);
         let line_attrs = line.attrs_list();
+        eprintln!("count: {:?}", line_attrs.spans().len());
         for span in line_attrs.spans() {
             let span_range = span.0;
             eprintln!("span_range: {:?}", span_range);
