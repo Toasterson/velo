@@ -1,4 +1,4 @@
-use std::{cmp::min, collections::VecDeque, path::PathBuf, time::Duration};
+use std::{collections::VecDeque, path::PathBuf, time::Duration};
 #[path = "utils.rs"]
 pub mod utils;
 pub use utils::*;
@@ -608,7 +608,7 @@ pub fn cosmic_edit_bevy_events(
                 let now_ms = get_timestamp();
                 if let Some(last_edit_duration) = *edits_duration {
                     if Duration::from_millis(now_ms as u64) - last_edit_duration
-                        > Duration::from_secs(1)
+                        > Duration::from_millis(300)
                     {
                         *edits_duration = Some(Duration::from_millis(now_ms as u64));
                         save_edit(&mut cosmic_edit, &mut edit_history);
